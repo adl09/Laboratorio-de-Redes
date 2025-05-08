@@ -1,0 +1,22 @@
+{
+    "files.associations": {
+        "string": "cpp",
+        "format": "cpp",
+        "iosfwd": "cpp",
+        "ostream": "cpp",
+        "array": "cpp",
+        "deque": "cpp",
+        "vector": "cpp",
+        "iterator": "cpp",
+        "string_view": "cpp",
+        "span": "cpp",
+        "unordered_map": "cpp",
+        "chrono": "cpp",
+        "__bit_reference": "cpp",
+        "__hash_table": "cpp",
+        "__split_buffer": "cpp",
+        "memory": "cpp",
+        "iostream": "cpp",
+        "istream": "cpp"
+    }
+}
