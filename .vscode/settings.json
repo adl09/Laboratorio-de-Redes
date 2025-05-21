@@ -71,6 +71,11 @@
         "string.h": "c",
         "inet.h": "c",
         "netdb.h": "c",
-        "cassert": "cpp"
+        "cassert": "cpp",
+        "__functional_base": "cpp",
+        "__node_handle": "cpp",
+        "__memory": "cpp",
+        "filesystem": "cpp",
+        "locale": "cpp"
     }
 }

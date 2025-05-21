@@ -13,20 +13,35 @@
 
 #include "MQTT.hpp"
 
-
 using namespace std;
 
+uint8_t buffer[BUFF_SIZE];
 
-void publisher_routine(int sockfd, const char* topic)
-{   
-    // Create MQTT msg
-    MQTTMsg *msg = new MQTTMsg();
+
+void publisher_routine(int sockfd, string *topic, string *value)
+{
+    // Routine is CONNECT--WAIT CONNACK--PUBLISH--DISCONECT REQUEST
     
+    // Create CONNECT
+    MQTTMsg *msg = new CONNECT();
+    int msgsize = ((CONNECT*)msg)->toBuffer(buffer, BUFF_SIZE);
+
     // Send the message
-    int n = sndMsg(sockfd, msg);
-    
-    assert(n >= 0 && "Error sending message");
+    int n = sndMsg(sockfd, buffer, msgsize);
+    cout << "snd return: " << n << endl;
 
+    sleep(1); // Wait for CONNACK message
+    
+    PUBLISH *msg2 = new PUBLISH(topic, value);
+    
+    msgsize = (msg2)->toBuffer(buffer, BUFF_SIZE);
+    cout << "PUBLISH message size: " << msgsize << endl;
+    // Send the message
+    n = sndMsg(sockfd, buffer, msgsize);
+    cout << "snd return: " << n << endl;
+
+    // Receive PUBACK message
+    sleep(2);
 
 }
 
@@ -35,11 +50,10 @@ int main(int argc, char *argv[])
 {
     assert((argc >= 5 || argc <= 6) && "Usage: ./client_pub <hostname> <port> <topic> <message>");
     
-    int sockfd, n;
+    int sockfd;
     int portno = atoi(argv[2]);
     struct sockaddr_in serv_addr;
     struct hostent *server;
-    char buffer[256];
 
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     assert(sockfd >= 0 && "Error opening socket");
@@ -56,24 +70,11 @@ int main(int argc, char *argv[])
 
     // Send PUBLISH message:
     // format: getline <topic> <message> <retain>
-    publisher_routine(sockfd, argv[3]);
+    // argv[3] = topic
+    string topic = argv[3];
+    string value = argv[4];
+    publisher_routine(sockfd, &topic, &value);
     
-
-
-
-    //getchar();
-
-    // printf("Please enter the message: ");
-    // bzero(buffer,256);
-
-    // while (true) {
-    //     printf("Please enter the message: ");
-    //     bzero(buffer, 256);
-    //     fgets(buffer, 255, stdin);
-    //     n = write(sockfd, buffer, strlen(buffer));
-    //     assert(n >= 0 && "Error writing to socket");
-    // }
-    // assert(n >= 0 && "Error writing to socket");
 
     close(sockfd);
         

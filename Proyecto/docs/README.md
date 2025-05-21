@@ -45,3 +45,15 @@ TENEMOS:
 - ./server crea un objeto broker (acá se inicializa el socket en 1234 y se pone listen) y llama al método acceptClients() (while(1) accept, esto es bloqueante, pero se bloquea el hilo principal solamente. A cada cliente nuevo se lo maneja en un hilo nuevo).
 
 - 
+
+================================================
+20-05-25
+# Requisitos:
+1. CONNECT: 
+    a. Client2Server
+    b. Servidor: espera solo UN connect, si viene otro cierra la conexión.
+    c. Flags usadas: username, password, willretain, cleansession=1 (no voy a guardar estados), willmessage.
+    d. 
+2. CONNACK:
+    a. Server2Client
+    b. 
