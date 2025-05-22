@@ -77,6 +77,10 @@ public:
     virtual int fromBuffer(const uint8_t *buffer, ssize_t sz8) { return 0; }; // Convert the buffer to a message for receiving
 };
 
+void connection_procedure(int sockfd, uint8_t *buffer);
+void subscribe_procedure(int sockfd, uint8_t *buffer, vector<string> *topic);
+
+
 void encodeLength(int value, uint8_t *encoded, int *pcount);
 int getEncodedLength(int sockfd, int *pcount);
 int rcvMsg(int sockfd, uint8_t *type, int *remlen, uint8_t *buffer, uint16_t sz8);
@@ -175,7 +179,7 @@ public:
     string value;
 
     PUBLISH(uint8_t type_flags,
-        int remlength)
+            int remlength)
     {
         this->type = (Type)(type_flags >> 4);
         this->flags = (type_flags & FLAGS_MSK); // 1 for RETAIN
@@ -221,7 +225,7 @@ public:
 struct topics_struct
 {
     uint16_t topic_len;
-    string topic;
+    string topic_name;
     uint8_t qos;
 };
 
@@ -237,7 +241,7 @@ public:
 
     SUBSCRIBE(uint8_t type_flags = FSUBSCRIBE_DEF_TYPEFLAG,
               int remlength = FSUBSCRIBE_DEF_REMLENGTH,
-            vector<string> *topics_ = nullptr)
+              vector<string> *topics_ = nullptr)
     {
         this->type = (Type)(type_flags >> 4);
         this->flags = (type_flags & FLAGS_MSK);
@@ -254,7 +258,7 @@ public:
             for (auto &topic : *topics_)
             {
                 topics_struct t;
-                t.topic = topic;
+                t.topic_name = topic;
                 t.topic_len = topic.length();
                 t.qos = 0; // QoS 0
                 this->topics->push_back(t);
@@ -266,15 +270,15 @@ public:
     SUBSCRIBE(vector<string> *topics_)
     {
         this->type = TYPE_SUBSCRIBE;
-        this->flags = 2; // FLAGS FIELD MUST BE 0010
-        this->msg_id = 0; // packet id
+        this->flags = 2;            // FLAGS FIELD MUST BE 0010
+        this->msg_id = 0;           // packet id
         this->remaining_length = 2; // 2 bytes for packet id
         // string to topics_struct
         this->topics = new vector<topics_struct>();
         for (auto &topic : *topics_)
         {
             topics_struct t;
-            t.topic = topic;
+            t.topic_name = topic;
             t.topic_len = topic.length();
             t.qos = 0; // QoS 0
             this->topics->push_back(t);
@@ -288,15 +292,15 @@ public:
 
 class SUBACK : public MQTTMsg
 {
-    public:
+public:
     // Variable header
     uint16_t msg_id; // packet id
     // Payload
     vector<uint8_t> *return_codes;
 
-    SUBACK(SUBSCRIBE *sub_msg = nullptr, 
-        uint8_t type_flags = 0x90,
-        int remlength = 0)
+    SUBACK(SUBSCRIBE *sub_msg = nullptr,
+           uint8_t type_flags = 0x90,
+           int remlength = 0)
     {
         this->type = (Type)(type_flags >> 4);
         this->flags = (type_flags & FLAGS_MSK);
@@ -322,7 +326,6 @@ class SUBACK : public MQTTMsg
 
     int toBuffer(uint8_t *buffer, ssize_t sz8) override;
     int fromBuffer(const uint8_t *buffer, ssize_t sz8) override;
-
 };
 
 class PINGREQ : public MQTTMsg

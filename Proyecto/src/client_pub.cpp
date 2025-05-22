@@ -18,42 +18,43 @@ using namespace std;
 uint8_t buffer[BUFF_SIZE];
 
 
-void publisher_routine(int sockfd, string *topic, string *value)
+void publisher_routine(int sockfd, string *topic, string *value, int *retain_flag=0)
 {
-    // Routine is CONNECT--WAIT CONNACK--PUBLISH--DISCONECT REQUEST
+    CONNECT *con_msg = nullptr;
+    CONNACK *conack_msg = nullptr;
+    PUBLISH *pub_msg = nullptr;
+    DISCONNECT *disc_msg = nullptr;
+    int msgsize, remlen, totalRecvd;
+
+    // CONNECT/CONNACK
+    connection_msgs(sockfd, buffer);
+
+    // SEND PUBLISH message
+    uint8_t type_flags = FPUBLISH_DEF_TYPEFLAG | (*retain_flag << 0); // 1 for RETAIN
+    pub_msg = new PUBLISH(topic, value, type_flags);
+    msgsize = (pub_msg)->toBuffer(buffer, BUFF_SIZE);
+    msgsize = sndMsg(sockfd, buffer, msgsize);
+    delete pub_msg;
+    pub_msg = nullptr;
     
-    // Create CONNECT
-    MQTTMsg *msg = new CONNECT();
-    int msgsize = ((CONNECT*)msg)->toBuffer(buffer, BUFF_SIZE);
-
-    // Send the message
-    int n = sndMsg(sockfd, buffer, msgsize);
-    cout << "snd return: " << n << endl;
-
-    sleep(1); // Wait for CONNACK message
-    
-    PUBLISH *msg2 = new PUBLISH(topic, value);
-    
-    msgsize = (msg2)->toBuffer(buffer, BUFF_SIZE);
-    cout << "PUBLISH message size: " << msgsize << endl;
-    // Send the message
-    n = sndMsg(sockfd, buffer, msgsize);
-    cout << "snd return: " << n << endl;
-
-    // Receive PUBACK message
-    sleep(2);
-
+    // SEND DISCONNECT message
+    disc_msg = new DISCONNECT();
+    msgsize = ((DISCONNECT*)disc_msg)->toBuffer(buffer, BUFF_SIZE);
+    msgsize = sndMsg(sockfd, buffer, msgsize);
+    delete disc_msg;
+    disc_msg = nullptr;
 }
 
 
 int main(int argc, char *argv[])
 {
-    assert((argc >= 5 || argc <= 6) && "Usage: ./client_pub <hostname> <port> <topic> <message>");
+    assert((argc >= 5 || argc <= 7) && "Usage: ./client_pub <hostname> <port> <topic> <message> <retain?>");
     
     int sockfd;
     int portno = atoi(argv[2]);
     struct sockaddr_in serv_addr;
     struct hostent *server;
+    int retain_flag = 0;
 
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
     assert(sockfd >= 0 && "Error opening socket");
@@ -65,17 +66,17 @@ int main(int argc, char *argv[])
     serv_addr.sin_port = htons(portno);
     assert(connect(sockfd, (struct sockaddr *) &serv_addr, sizeof(serv_addr)) >= 0 && "Error connecting");
 
-    // Send CONNECT message
-    // Wait for CONNACK message
-
-    // Send PUBLISH message:
-    // format: getline <topic> <message> <retain>
-    // argv[3] = topic
     string topic = argv[3];
     string value = argv[4];
-    publisher_routine(sockfd, &topic, &value);
+    if (argc == 6){
+        retain_flag = atoi(argv[5]);
+    }
+    publisher_routine(sockfd, &topic, &value, &retain_flag);
     
-
+    cout << "Message <" << value << "> sent to topic <" << topic << "> ";
+    if (retain_flag)
+        cout << "/ Retained" << endl;    
+    
     close(sockfd);
         
     return 0;

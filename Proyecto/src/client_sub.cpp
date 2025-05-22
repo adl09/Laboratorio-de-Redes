@@ -11,6 +11,7 @@
 #include <vector>
 #include <netdb.h>
 #include <chrono>
+#include <set>
 
 #include "MQTT.hpp"
 
@@ -20,72 +21,76 @@ uint8_t buffer[BUFF_SIZE];
 
 void subscriber_routine(int sockfd, vector<string> *topics)
 {
-    CONNECT *connect = nullptr;
-    SUBSCRIBE *subscribe = nullptr;
-    SUBACK *suback = nullptr;
-    PUBLISH *publish = nullptr;
-    CONNACK *connack = nullptr;
-    PINGREQ *pingreq = nullptr;
-    PINGRESP *pingresp = nullptr;
+    CONNECT *con_msg = nullptr;
+    CONNACK *conack_msg = nullptr;
+    SUBSCRIBE *sub_msg = nullptr;
+    SUBACK *suback_msg = nullptr;
+    PINGREQ *pingreq_msg = nullptr;
+    PINGRESP *pingresp_msg = nullptr;
+    PUBLISH *pub_msg = nullptr;
+    DISCONNECT *disc_msg = nullptr;
 
-    // Routine is CONNECT--RECEIVE CONNACK--SEND SUBSCRIBE--RECEIVE SUBACK
-    // STATIONARY: RECEIVE PUBLISHES(...)
-    // IF KEEPALIVE WITHOUT MESSAGES, SEND PINGREQ -- WAIT PINGRESP -- BACK TO STATIONARY
-    // IF CTRL+D -- SEND DISCONNECT REQUEST
+    int msgsize, remlen, totalRecvd;
+    Type type;
+    uint8_t type_flags, keepalive;
 
-    // Create CONNECT
-    connect = new CONNECT();
-    int keepalive = connect->keep_alive;
-    int msgsize = connect->toBuffer(buffer, BUFF_SIZE);
+    // CONNECT/CONNACK
+    connection_procedure(sockfd, buffer);
+    
 
-    // Send the message
-    int n = sndMsg(sockfd, buffer, msgsize);
-    cout << "snd return: " << n << endl;
-
-    sleep(1); // Wait for CONNACK message
-    // Receive CONNACK message
-
-    // // Subscribe to the topic
-    subscribe = new SUBSCRIBE(topics);
-    msgsize = ((SUBSCRIBE *)subscribe)->toBuffer(buffer, BUFF_SIZE);
-    cout << "SUBSCRIBE message size: " << msgsize << endl;
-    // Send the message
-    n = sndMsg(sockfd, buffer, msgsize);
-
-    // Receive SUBACK message
-
-    // start timer
-    auto start = std::chrono::high_resolution_clock::now();
+    // SUBSCRIBE/SUBACK
+    subscribe_procedure(sockfd, buffer, topics);
+    
+    
 
 
 
-    while (true)
-    {
-        if (keepalive > 0)
-        {
-            // Wait for keepalive
-            auto now = std::chrono::high_resolution_clock::now();
-            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
-            if (elapsed >= keepalive)
-            {
-                // Send PINGREQ message
-                pingreq = new PINGREQ();
-                pingreq->type = TYPE_PINGREQ;
-                pingreq->remaining_length = 0;
-                msgsize = pingreq->toBuffer(buffer, BUFF_SIZE);
-                int n = sndMsg(sockfd, buffer, msgsize);
-                start = std::chrono::high_resolution_clock::now(); // Reset timer
-                // // Wait for PINGRESP message
-                // n = rcvMsg(sockfd, buffer, &msgsize, buffer, BUFF_SIZE);
-                // if (n > 0)
-                // {
-                //     pingresp = new PINGRESP();
-                //     pingresp->fromBuffer(buffer, msgsize);
-                //     cout << "PINGRESP received" << endl;
-                // }
-            }
-        }
-    }
+
+    // // start timer
+    // auto start = std::chrono::high_resolution_clock::now();
+
+
+
+    // while (true)
+    // {
+    //     while(true){
+    //         totalRecvd = rcvMsg(sockfd, &type_flags, &remlen, buffer, BUFF_SIZE);
+    //         type = (Type)(type_flags >> 4);
+            
+    //         if(type == TYPE_PUBLISH){
+    //             pub_msg = new PUBLISH(type_flags,remlen);
+    //             pub_msg->fromBuffer(buffer, totalRecvd);
+    //             cout << "Received PUBLISH message: " << pub_msg->topic_name << " " << pub_msg->value << endl;
+    //             type = TYPE_RESERVED;
+    //         }
+    
+    //     }
+
+    //     if (keepalive > 0)
+    //     {
+    //         // Wait for keepalive
+    //         auto now = std::chrono::high_resolution_clock::now();
+    //         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
+    //         if (elapsed >= keepalive)
+    //         {
+    //             // Send PINGREQ message
+    //             pingreq = new PINGREQ();
+    //             pingreq->type = TYPE_PINGREQ;
+    //             pingreq->remaining_length = 0;
+    //             msgsize = pingreq->toBuffer(buffer, BUFF_SIZE);
+    //             int n = sndMsg(sockfd, buffer, msgsize);
+    //             start = std::chrono::high_resolution_clock::now(); // Reset timer
+    //             // // Wait for PINGRESP message
+    //             // n = rcvMsg(sockfd, buffer, &msgsize, buffer, BUFF_SIZE);
+    //             // if (n > 0)
+    //             // {
+    //             //     pingresp = new PINGRESP();
+    //             //     pingresp->fromBuffer(buffer, msgsize);
+    //             //     cout << "PINGRESP received" << endl;
+    //             // }
+    //         }
+    //     }
+    // }
 }
 
 int main(int argc, char *argv[])
@@ -110,7 +115,7 @@ int main(int argc, char *argv[])
     vector<string> topics;
     for (int i = 3; i < argc; ++i)
     {
-        topics.emplace_back(argv[i]);
+        topics.push_back(argv[i]);
     }
 
     subscriber_routine(sockfd, &topics);
