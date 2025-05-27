@@ -19,9 +19,6 @@
 using namespace std;
 
 
-
-
-
 class Broker{
     private:
         class Client{

@@ -20,12 +20,20 @@ uint8_t buffer[BUFF_SIZE];
 Broker::Broker(int portnumber)
 {
     serv_sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    assert(serv_sockfd >= 0 && "Error opening socket");
+    if (serv_sockfd < 0)
+    {
+        cerr << "Error opening socket" << endl;
+        exit(EXIT_FAILURE);
+    }
     bzero((char *)&serv_addr, sizeof(serv_addr));
     serv_addr.sin_family = AF_INET;
     serv_addr.sin_addr.s_addr = INADDR_ANY;
     serv_addr.sin_port = htons(portnumber);
-    assert(bind(serv_sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) >= 0 && "Error on binding");
+    if (bind(serv_sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+    {
+        cerr << "Error on binding" << endl;
+        exit(EXIT_FAILURE);
+    }
     listen(serv_sockfd, 5);
     cout << "Broker listening on port " << portnumber << endl;
 }
@@ -37,13 +45,16 @@ void Broker::toclient_routine(Client *client)
     uint8_t type_flags;
     Type type;
     int msgsize, remlen, totalRecvd;
-    uint16_t keepalive;
+    uint16_t keepalive=0;
 
     CONNECT *con_msg = nullptr;
     CONNACK *conack_msg = nullptr;
     PUBLISH *pub_msg = nullptr;
     SUBSCRIBE *sub_msg = nullptr;
-    SUBACK *suback = nullptr;
+    SUBACK *suback_msg = nullptr;
+    UNSUBSCRIBE *unsub_msg = nullptr;
+    UNSUBACK *unsuback_msg = nullptr;
+    PINGRESP *pingresp_msg = nullptr;
 
     try
     {
@@ -56,7 +67,7 @@ void Broker::toclient_routine(Client *client)
         con_msg = nullptr;
 
         // Send CONNACK message
-        CONNACK *conack_msg = new CONNACK();
+        conack_msg = new CONNACK();
         msgsize = conack_msg->toBuffer(buffer, BUFF_SIZE);
         msgsize = sndMsg(client->sockfd, buffer, msgsize);
         delete conack_msg;
@@ -91,7 +102,7 @@ void Broker::toclient_routine(Client *client)
             // Add publication to list and send to all subscribers
             pub_msg = new PUBLISH(type_flags, remlen);
             pub_msg->fromBuffer(buffer, BUFF_SIZE);
-
+            //cout << "Received PUBLISH message: " << pub_msg->topic_name << " " << pub_msg->value << endl;
             addPublish(&pub_msg->topic_name, &pub_msg->value, &type_flags);
 
             delete pub_msg;
@@ -103,11 +114,6 @@ void Broker::toclient_routine(Client *client)
             // Add client to list of subscribers of the topic
             sub_msg = new SUBSCRIBE(type_flags, remlen);
             sub_msg->fromBuffer(buffer, BUFF_SIZE);
-
-            // cout << "Received SUBSCRIBE message: " << sub_msg->topics->at(0).topic << endl;
-            // //cout << "Received SUBSCRIBE message: " << sub_msg->topics->at(1).topic << endl;
-
-            // MANEJAR EL SUBSCRIBE: AGREGAR CLIENTE A LA LISTA DE SUSCRIPTORES DEL TOPIC
             for (auto &topic : *sub_msg->topics)
             {
                 clients_subscribed_topics[topic.topic_name].push_back(client);
@@ -118,28 +124,62 @@ void Broker::toclient_routine(Client *client)
                     PUBLISH *pub_msg = new PUBLISH(&topic.topic_name, &retained_topics[topic.topic_name], FPUBLISH_DEF_TYPEFLAG, 0);
                     msgsize = pub_msg->toBuffer(buffer, BUFF_SIZE);
                     msgsize = sndMsg(client->sockfd, buffer, msgsize);
-                    cout << "RETAINED PUBLISH SENT to subscriber: " << topic.topic_name << endl;
                     delete pub_msg;
                 }
             }
 
-            suback = new SUBACK(sub_msg);
-            msgsize = suback->toBuffer(buffer, BUFF_SIZE);
+            suback_msg = new SUBACK(sub_msg);
+            sub_msg->msg_id = suback_msg->msg_id;
+            msgsize = suback_msg->toBuffer(buffer, BUFF_SIZE);
             msgsize = sndMsg(client->sockfd, buffer, msgsize);
 
-            // cout << "SUBACK SENT: " << n << endl;
 
+            delete sub_msg;
+            sub_msg = nullptr;
+            delete suback_msg;
+            suback_msg = nullptr;
             type_flags = 0;
             break;
 
         case TYPE_UNSUBSCRIBE:
+
             // Remove client from list of subscribers of the topic
+            unsub_msg = new UNSUBSCRIBE(type_flags, remlen);
+            unsub_msg->fromBuffer(buffer, BUFF_SIZE);
+            for (auto &topic : *unsub_msg->topics)
+            {
+                auto it = clients_subscribed_topics.find(topic.topic_name);
+                if (it != clients_subscribed_topics.end())
+                {
+                    it->second.remove(client);
+                    client->subscribe_topics.erase(topic.topic_name);
+                    if (it->second.empty())
+                    {
+                        clients_subscribed_topics.erase(it);
+                    }
+                }
+            }
+            unsuback_msg = new UNSUBACK();
+            unsuback_msg->msg_id = unsub_msg->msg_id;
+            msgsize = unsuback_msg->toBuffer(buffer, BUFF_SIZE);
+            msgsize = sndMsg(client->sockfd, buffer, msgsize);
+            // TRY
+
+            delete unsub_msg;
+            unsub_msg = nullptr;
+            delete unsuback_msg;
+            unsuback_msg = nullptr;
 
             type_flags = 0;
             break;
 
         case TYPE_PINGREQ:
             // Send PINGRESP message
+            pingresp_msg = new PINGRESP();
+            msgsize = pingresp_msg->toBuffer(buffer, BUFF_SIZE);
+            msgsize = sndMsg(client->sockfd, buffer, msgsize);
+            delete pingresp_msg;
+            pingresp_msg = nullptr;
 
             type_flags = 0;
             break;
@@ -148,20 +188,18 @@ void Broker::toclient_routine(Client *client)
             removeClient(client);
             return;
             
+        case TYPE_CONNECT:
+            // Already handled
+            removeClient(client);
+            break;
 
-        default: // Including DISCONNECT request and another CONNECT message.
-
+        default:
             removeClient(client);
             return;
         }
     }
 
-    ///////////
-    // Routine:
-    // Wait for a message from the client...
-    // If SUBSCRIBE, send SUBACK message and add client to the list of subscribers of that topic
-    // If UNSUBSCRIBE, remove client from the list of subscribers of that topic
-    // If PUBLISH, send PUBLISH message to all subscribers
+
 }
 
 void Broker::addClient(int sockfd, const sockaddr_in &client_addr)
@@ -173,10 +211,20 @@ void Broker::addClient(int sockfd, const sockaddr_in &client_addr)
 
 void Broker::removeClient(Client *client)
 {
-    // recorrer subscripciones y eliminarse, todo lockeadndo....
-    // ...
-    cout << "Client thread finished for client: " << inet_ntoa(client->addr.sin_addr) << ":" << ntohs(client->addr.sin_port) << endl;
     unique_lock<mutex> lck(mtx_clients);
+    for (const auto &topic : client->subscribe_topics)
+    {
+        auto it = clients_subscribed_topics.find(topic);
+        if (it != clients_subscribed_topics.end())
+        {
+            it->second.remove(client);
+            if (it->second.empty())
+            {
+                clients_subscribed_topics.erase(it);
+            }
+        }
+    }
+    cout << "Client thread finished for client: " << inet_ntoa(client->addr.sin_addr) << ":" << ntohs(client->addr.sin_port) << endl;
     close(client->sockfd);
     client->th.detach();
     clients_active.remove(client);
@@ -191,7 +239,11 @@ void Broker::acceptClients()
     while (true)
     {
         sockfd = accept(serv_sockfd, (struct sockaddr *)&client_addr, &client_len);
-        assert(sockfd >= 0 && "Error on accept"); // Modificar, manejo de error sin romper todo.
+        if (sockfd < 0) 
+        {
+            cerr << "Error on accept" << endl;
+            continue;
+        }
         addClient(sockfd, client_addr);
     }
 }
@@ -212,7 +264,7 @@ Broker::Client::Client(Broker *br_, int sockfd_, const sockaddr_in &addr_)
 void Broker::addPublish(string *topic, string *value, uint8_t *flags)
 {
 
-    int n, msgsize;
+    int msgsize;
     if (*flags & 1) // RETAIN flag is set
     {
         unique_lock<mutex> lck(mtx_rettopics);
@@ -225,9 +277,8 @@ void Broker::addPublish(string *topic, string *value, uint8_t *flags)
     {
         for (auto &subscriber : clients_subscribed_topics[*topic])
         {
-            // Send message to subscriber
             msgsize = pub_msg->toBuffer(buffer, BUFF_SIZE);
-            n = sndMsg(subscriber->sockfd, buffer, msgsize);
+            msgsize = sndMsg(subscriber->sockfd, buffer, msgsize);
         }
     }
 }

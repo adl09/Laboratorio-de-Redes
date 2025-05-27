@@ -11,6 +11,8 @@
 #include <vector>
 #include <netdb.h>
 #include <set>
+#include <fcntl.h>
+#include <errno.h>
 
 #include "MQTT.hpp"
 
@@ -18,7 +20,6 @@ using namespace std;
 
 void encodeLength(int value, uint8_t *encoded, int *pcount)
 {
-
     int encodedByte;
     do
     {
@@ -66,11 +67,15 @@ int rcvMsg(int sockfd, uint8_t *first, int *remlen, uint8_t *buffer, uint16_t sz
     ssize_t totalRecvd = 0;
 
     // Receive the first byte of the fixed header
+    // set flags to nonblock
+    
     recvd = recv(sockfd, first, toRecv, 0);
+    if ((recvd == -1 && (errno == EWOULDBLOCK || errno == EAGAIN)))
+        return -2;
     if ((recvd == -1 && errno != EINTR) || recvd == 0)
         return 0;
+    
     totalRecvd += recvd;
-    // ptr_buff += recvd;
 
     // Calculate the remaining length to receive
     int count = 0;
@@ -121,15 +126,6 @@ int sndMsg(int sockfd, uint8_t *buffer, int length)
             ptr_buff += sent;
         }
     }
-
-    // TEST
-    // std::cout << "Sent (hex): ";
-    // for (int i = 0; i < length; ++i)
-    // {
-    //     std::cout << std::hex << std::uppercase << (int)buffer[i] << " ";
-    // }
-    // std::cout << std::dec << std::endl;
-
     return 0;
 }
 
@@ -199,7 +195,7 @@ int CONNACK::fromBuffer(const uint8_t *buffer, ssize_t sz8)
     return 0;
 }
 
-void connection_procedure(int sockfd, uint8_t *buffer)
+void connection_procedure(int sockfd, uint8_t *buffer, uint8_t *keepalive)
 {
     CONNECT *con_msg = nullptr;
     CONNACK *conack_msg = nullptr;
@@ -209,6 +205,7 @@ void connection_procedure(int sockfd, uint8_t *buffer)
     con_msg = new CONNECT();
     msgsize = ((CONNECT *)con_msg)->toBuffer(buffer, BUFF_SIZE);
     msgsize = sndMsg(sockfd, buffer, msgsize);
+    *keepalive = con_msg->keep_alive;
     delete con_msg;
     con_msg = nullptr;
 
@@ -275,8 +272,6 @@ int SUBSCRIBE::toBuffer(uint8_t *buffer, ssize_t sz8)
     i += 1;                                         // i = 1 byte (first) + encoded_len counter bytes
     // msg_id
     len2buff(msg_id, buffer + i); // Message ID
-    // len2buff(this->topics->size(), buffer + i); // Topic name length
-    // i += 2; // i = 1 byte (first) + encoded_len counter bytes
     i += 2; // i = 1 byte (first) + encoded_len counter bytes
 
     for (int j = 0; j < (int)this->topics->size(); ++j)
@@ -317,6 +312,39 @@ int SUBSCRIBE::fromBuffer(const uint8_t *buffer, ssize_t sz8)
     return 0;
 }
 
+
+
+int SUBACK::toBuffer(uint8_t *buffer, ssize_t sz8)
+{
+    // Convert the SUBACK message to a buffer for sending
+    int i = 0;
+    bzero(buffer, BUFF_SIZE); // Clear the buffer
+
+    type2buff(buffer);                              // Set the message type
+    flags2buff(buffer);                             // Set the flags
+    encodeLength(remaining_length, buffer + 1, &i); // Remaining length
+    i += 1;                                         // i = 1 byte (first) + encoded_len counter bytes
+    len2buff(msg_id, buffer + i);                   // Message ID
+    i += 2;                                         // i = 1 byte (first) + encoded_len counter bytes
+    for (int j = 0; j < (int)this->return_codes->size(); ++j)
+    {
+        buffer[i++] = (*this->return_codes)[j]; // Return code
+    }
+    return i; // Return the number of bytes written to the buffer
+}
+
+int SUBACK::fromBuffer(const uint8_t *buffer, ssize_t sz8)
+{
+    // Convert the buffer to a SUBACK message
+    msg_id = (buffer[0] << 8) | buffer[1]; // Message ID
+    int i = 2;                             // i = 1 byte (first) + encoded_len counter bytes
+    for (int j = 0; j < this->remaining_length - 2; ++j)
+    {
+        return_codes->push_back(buffer[i++]); // Return code
+    }
+    return 0;
+}
+
 void subscribe_procedure(int sockfd, uint8_t *buffer, vector<string> *topics)
 {    
     SUBSCRIBE *sub_msg = nullptr;
@@ -348,37 +376,6 @@ void subscribe_procedure(int sockfd, uint8_t *buffer, vector<string> *topics)
     // Add 
 
     return;
-}
-
-int SUBACK::toBuffer(uint8_t *buffer, ssize_t sz8)
-{
-    // Convert the SUBACK message to a buffer for sending
-    int i = 0;
-    bzero(buffer, BUFF_SIZE); // Clear the buffer
-
-    type2buff(buffer);                              // Set the message type
-    flags2buff(buffer);                             // Set the flags
-    encodeLength(remaining_length, buffer + 1, &i); // Remaining length
-    i += 1;                                         // i = 1 byte (first) + encoded_len counter bytes
-    len2buff(msg_id, buffer + i);                   // Message ID
-    i += 2;                                         // i = 1 byte (first) + encoded_len counter bytes
-    for (int j = 0; j < (int)this->return_codes->size(); ++j)
-    {
-        buffer[i++] = (*this->return_codes)[j]; // Return code
-    }
-    return i; // Return the number of bytes written to the buffer
-}
-
-int SUBACK::fromBuffer(const uint8_t *buffer, ssize_t sz8)
-{
-    // Convert the buffer to a SUBACK message
-    msg_id = (buffer[0] << 8) | buffer[1]; // Message ID
-    int i = 2;                             // i = 1 byte (first) + encoded_len counter bytes
-    for (int j = 0; j < this->remaining_length - 2; ++j)
-    {
-        return_codes->push_back(buffer[i++]); // Return code
-    }
-    return 0;
 }
 
 int PINGREQ::toBuffer(uint8_t *buffer, ssize_t sz8)
@@ -435,4 +432,75 @@ int DISCONNECT::fromBuffer(const uint8_t *buffer, ssize_t sz8)
     // Convert the buffer to a DISCONNECT message
 
     return 0;
+}
+
+int UNSUBSCRIBE::toBuffer(uint8_t *buffer, ssize_t sz8)
+{
+    // Convert the UNSUBSCRIBE message to a buffer for sending
+    int i = 0;
+    bzero(buffer, BUFF_SIZE); // Clear the buffer
+
+    type2buff(buffer);                              // Set the message type
+    flags2buff(buffer);                             // Set the flags
+    encodeLength(remaining_length, buffer + 1, &i); // Remaining length
+    i += 1;                                         // i = 1 byte (first) + encoded_len counter bytes
+    len2buff(msg_id, buffer + i);                   // Message ID
+    i += 2;                                         // i = 1 byte (first) + encoded_len counter bytes
+
+    for (int j = 0; j < (int)this->topics->size(); ++j)
+    {
+        len2buff((*this->topics)[j].topic_len, buffer + i);                                      // Topic name length
+        i += 2;                                                                                  // i = 1 byte (first) + encoded_len counter bytes
+        memcpy(buffer + i, (*this->topics)[j].topic_name.c_str(), (*this->topics)[j].topic_len); // Topic name
+        i += (*this->topics)[j].topic_len;
+    }
+    return i; // Return the number of bytes written to the buffer
+}
+
+int UNSUBSCRIBE::fromBuffer(const uint8_t *buffer, ssize_t sz8)
+{
+    // Convert the buffer to a UNSUBSCRIBE message
+    int i = 0;
+    int rem_length = this->remaining_length;
+    msg_id = (buffer[i] << 8) | buffer[i + 1]; // Message ID
+    i += 2;                                    // i = 1 byte (first) + encoded_len counter bytes
+    rem_length -= 2;                           // Message ID length
+    do
+    {
+        topics_struct topic;
+        topic.topic_len = (buffer[i] << 8) | buffer[i + 1]; // Topic name length
+        i += 2;
+        topic.topic_name = string((char *)buffer + i, topic.topic_len); // Topic name
+        i += topic.topic_len;
+        topics->push_back(topic);
+        rem_length -= (topic.topic_len + 2);
+        if (rem_length < 0)
+        {
+            cout << "Malformed UNSUBSCRIBE message" << endl; // MANEJO ERRORES
+            return -1;
+        }
+    } while (rem_length > 0);
+    return 0;
+}
+
+int UNSUBACK::fromBuffer(const uint8_t *buffer, ssize_t sz8)
+{
+    // Convert the buffer to a UNSUBACK message
+    msg_id = (buffer[0] << 8) | buffer[1]; // Message ID
+    return 0;
+}
+
+int UNSUBACK::toBuffer(uint8_t *buffer, ssize_t sz8)
+{
+    // Convert the UNSUBACK message to a buffer for sending
+    int i = 0;
+    bzero(buffer, BUFF_SIZE); // Clear the buffer
+
+    type2buff(buffer);                              // Set the message type
+    flags2buff(buffer);                             // Set the flags
+    encodeLength(remaining_length, buffer + 1, &i); // Remaining length
+    i += 1;                                         // i = 1 byte (first) + encoded_len counter bytes
+    len2buff(msg_id, buffer + i);                   // Message ID
+    i += 2;                                         // i = 1 byte (first) + encoded_len counter bytes
+    return i;                                       // Return the number of bytes written to the buffer
 }

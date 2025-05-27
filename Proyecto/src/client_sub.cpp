@@ -12,115 +12,316 @@
 #include <netdb.h>
 #include <chrono>
 #include <set>
-
+#include <algorithm>
+#include <fcntl.h>
+#include <errno.h>
+#include <memory>
+#include <unordered_map>
+#include <poll.h>
 #include "MQTT.hpp"
+#include <signal.h>
 
 using namespace std;
 
 uint8_t buffer[BUFF_SIZE];
 
-void subscriber_routine(int sockfd, vector<string> *topics)
+// vector<string> subscribed_topics;
+// vector<string> unread_topics;
+thread th_polling;
+mutex mtx_topics, mtx_exit;
+thread th_timing;
+
+int global_sockfd; // Global variable to store sockfd
+
+void signal_handler(int signum)
 {
-    CONNECT *con_msg = nullptr;
-    CONNACK *conack_msg = nullptr;
+    if (signum == SIGINT || signum == SIGTERM)
+    {
+        cout << "\nSignal received." << endl;
+        DISCONNECT *disc_msg = new DISCONNECT();
+        int msgsize = ((DISCONNECT *)disc_msg)->toBuffer(buffer, BUFF_SIZE);
+        msgsize = sndMsg(global_sockfd, buffer, msgsize);
+        exit(0);
+    }
+}
+
+void setup_signal_handler(int sockfd)
+{
+    global_sockfd = sockfd; // Assign sockfd to global variable
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
+}
+
+void timing_procedure(mutex *mtx_kp, uint8_t *keepalive, bool *pingrequest_flag, shared_ptr<chrono::high_resolution_clock::time_point> start_ptr)
+{
+    while (true)
+    {
+        // Wait for keepalive
+        auto now = std::chrono::high_resolution_clock::now();
+        auto elapsed = chrono::duration_cast<chrono::seconds>(now - *start_ptr).count();
+        if ((elapsed >= *keepalive) && !*pingrequest_flag)
+        {
+            unique_lock<mutex> lck_kp(*mtx_kp);
+            *start_ptr = std::chrono::high_resolution_clock::now();
+            *pingrequest_flag = true;
+        }
+        this_thread::sleep_for(chrono::milliseconds(100));
+    }
+}
+
+void subscriber_routine(int sockfd)
+{
     SUBSCRIBE *sub_msg = nullptr;
     SUBACK *suback_msg = nullptr;
+    UNSUBSCRIBE *unsub_msg = nullptr;
+    UNSUBACK *unsuback_msg = nullptr;
     PINGREQ *pingreq_msg = nullptr;
     PINGRESP *pingresp_msg = nullptr;
     PUBLISH *pub_msg = nullptr;
     DISCONNECT *disc_msg = nullptr;
 
-    int msgsize, remlen, totalRecvd;
+    int msgsize;
     Type type;
     uint8_t type_flags, keepalive;
 
+    set<string> subscribed;
+    unordered_map<uint16_t, vector<string>> pending_sub;
+    unordered_map<uint16_t, vector<string>> pending_unsub;
+    uint16_t msg_id = 1;
+
+    int stdin_fd = fileno(stdin);
+    auto last_ping = chrono::steady_clock::now();
+    struct pollfd fds[2];
+    fds[0] = {sockfd, POLLIN, 0};
+    fds[1] = {stdin_fd, POLLIN, 0};
+
     // CONNECT/CONNACK
-    connection_procedure(sockfd, buffer);
-    
+    connection_procedure(sockfd, buffer, &keepalive);
+    auto start_ptr = make_shared<chrono::high_resolution_clock::time_point>(chrono::high_resolution_clock::now());
 
-    // SUBSCRIBE/SUBACK
-    subscribe_procedure(sockfd, buffer, topics);
-    
-    
+    setup_signal_handler(sockfd); // Setup signal handler
 
+    // SUBSCRIBE/UNSUBSCRIBE
 
-
-
-    // // start timer
-    // auto start = std::chrono::high_resolution_clock::now();
-
-
-
-    // while (true)
-    // {
-    //     while(true){
-    //         totalRecvd = rcvMsg(sockfd, &type_flags, &remlen, buffer, BUFF_SIZE);
-    //         type = (Type)(type_flags >> 4);
-            
-    //         if(type == TYPE_PUBLISH){
-    //             pub_msg = new PUBLISH(type_flags,remlen);
-    //             pub_msg->fromBuffer(buffer, totalRecvd);
-    //             cout << "Received PUBLISH message: " << pub_msg->topic_name << " " << pub_msg->value << endl;
-    //             type = TYPE_RESERVED;
-    //         }
-    
-    //     }
-
-    //     if (keepalive > 0)
-    //     {
-    //         // Wait for keepalive
-    //         auto now = std::chrono::high_resolution_clock::now();
-    //         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - start).count();
-    //         if (elapsed >= keepalive)
-    //         {
-    //             // Send PINGREQ message
-    //             pingreq = new PINGREQ();
-    //             pingreq->type = TYPE_PINGREQ;
-    //             pingreq->remaining_length = 0;
-    //             msgsize = pingreq->toBuffer(buffer, BUFF_SIZE);
-    //             int n = sndMsg(sockfd, buffer, msgsize);
-    //             start = std::chrono::high_resolution_clock::now(); // Reset timer
-    //             // // Wait for PINGRESP message
-    //             // n = rcvMsg(sockfd, buffer, &msgsize, buffer, BUFF_SIZE);
-    //             // if (n > 0)
-    //             // {
-    //             //     pingresp = new PINGRESP();
-    //             //     pingresp->fromBuffer(buffer, msgsize);
-    //             //     cout << "PINGRESP received" << endl;
-    //             // }
-    //         }
-    //     }
-    // }
-}
-
-int main(int argc, char *argv[])
-{
-    assert((argc >= 4 || argc <= 5) && "Usage: ./client_sub <hostname> <port> <topics list>");
-
-    int sockfd;
-    int portno = atoi(argv[2]);
-    struct sockaddr_in serv_addr;
-    struct hostent *server;
-
-    sockfd = socket(AF_INET, SOCK_STREAM, 0);
-    assert(sockfd >= 0 && "Error opening socket");
-    server = gethostbyname(argv[1]);
-    assert(server != NULL && "Error, no such host");
-    bzero((char *)&serv_addr, sizeof(serv_addr));
-    serv_addr.sin_family = AF_INET;
-    bcopy((char *)server->h_addr, (char *)&serv_addr.sin_addr.s_addr, server->h_length);
-    serv_addr.sin_port = htons(portno);
-    assert(connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) >= 0 && "Error connecting");
-
-    vector<string> topics;
-    for (int i = 3; i < argc; ++i)
+    while (true)
     {
-        topics.push_back(argv[i]);
+
+        int n = poll(fds, 2, keepalive * 1000);
+        if (n < 0)
+        {
+            perror("poll");
+            break;
+        }
+        if (n == 0)
+        {
+            pingreq_msg = new PINGREQ();
+            msgsize = pingreq_msg->toBuffer(buffer, BUFF_SIZE);
+            msgsize = sndMsg(sockfd, buffer, msgsize);
+            // TRY
+
+            delete pingreq_msg;
+            pingreq_msg = nullptr;
+            continue;
+        }
+        // stdin
+        if (fds[1].revents & POLLIN)
+        {
+            string cmd;
+            cin >> cmd;
+            vector<string> topics;
+            string t;
+            while (cin.peek() != '\n' && cin >> t)
+                topics.push_back(t);
+
+            uint16_t id = msg_id++;
+            if (cmd == "SUB")
+            {
+                pending_sub[id] = topics;
+                sub_msg = new SUBSCRIBE(&topics, id);
+                msgsize = ((SUBSCRIBE *)sub_msg)->toBuffer(buffer, BUFF_SIZE);
+                msgsize = sndMsg(sockfd, buffer, msgsize);
+                // TRY
+            }
+            else if (cmd == "UNSUB")
+            {
+                pending_unsub[id] = topics;
+                unsub_msg = new UNSUBSCRIBE(&topics, id);
+                msgsize = ((UNSUBSCRIBE *)unsub_msg)->toBuffer(buffer, BUFF_SIZE);
+                msgsize = sndMsg(sockfd, buffer, msgsize);
+                // TRY
+            }
+            else if (cmd == "LIST")
+            {
+                if (subscribed.empty())
+                {
+                    cout << "No topics subscribed." << endl;
+                }
+                else
+                {
+                    cout << "Subscribed topics:" << endl;
+                    for (const auto &topic : subscribed)
+                    {
+                        cout << topic << endl;
+                    }
+                }
+            }
+            else if (cmd == "PING")
+            {
+                pingreq_msg = new PINGREQ();
+                msgsize = pingreq_msg->toBuffer(buffer, BUFF_SIZE);
+                msgsize = sndMsg(sockfd, buffer, msgsize);
+                // TRY
+
+                delete pingreq_msg;
+                pingreq_msg = nullptr;
+            }
+            else if (cmd == "EXIT")
+            {
+                disc_msg = new DISCONNECT();
+                msgsize = ((DISCONNECT *)disc_msg)->toBuffer(buffer, BUFF_SIZE);
+                msgsize = sndMsg(sockfd, buffer, msgsize);
+                // TRY
+
+                delete disc_msg;
+                disc_msg = nullptr;
+            }
+        }
+
+        if (fds[0].revents & POLLIN)
+        {
+            uint8_t buf[BUFF_SIZE], flags;
+            int rem;
+            int len = rcvMsg(sockfd, &flags, &rem, buf, BUFF_SIZE);
+            if (len == 0 || (fds[0].revents & (POLLHUP | POLLERR)))
+            {
+                cerr << "Socket closed... Bye." << endl;
+                close(sockfd);
+                return;
+
+            }
+                if (len <= 0)
+                    continue;
+
+                auto type = Type(flags >> 4);
+
+                auto it = pending_sub.end();
+                switch (type)
+                {
+                case TYPE_PUBLISH:
+                    pub_msg = new PUBLISH(flags, rem);
+                    pub_msg->fromBuffer(buf, len);
+                    cout << pub_msg->topic_name << "/" << pub_msg->value << endl;
+                    delete pub_msg;
+                    pub_msg = nullptr;
+                    break;
+
+                case TYPE_SUBACK:
+                    suback_msg = new SUBACK(sub_msg);
+                    suback_msg->fromBuffer(buf, len);
+                    cout << "SUBACK received" << endl;
+
+                    it = pending_sub.find(suback_msg->msg_id);
+                    if (it != pending_sub.end())
+                    {
+                        for (auto &topic : it->second)
+                            subscribed.insert(topic);
+                        pending_sub.erase(it);
+                    }
+                    delete suback_msg, sub_msg;
+                    sub_msg = nullptr;
+                    suback_msg = nullptr;
+
+                    break;
+
+                case TYPE_UNSUBACK:
+                    unsuback_msg = new UNSUBACK(unsub_msg);
+                    unsuback_msg->fromBuffer(buf, len);
+                    unsuback_msg->msg_id = (buf[0] << 8) | buf[1]; // Message ID
+                    cout << "UNSUBACK received" << endl;
+
+                    it = pending_unsub.find(unsuback_msg->msg_id);
+                    if (it != pending_unsub.end())
+                    {
+                        for (auto &topic : it->second)
+                            subscribed.erase(topic);
+                        pending_unsub.erase(it);
+                    }
+
+                    delete unsuback_msg, unsub_msg;
+                    unsub_msg = nullptr;
+                    unsuback_msg = nullptr;
+                    break;
+
+                case TYPE_PINGRESP:
+                    pingresp_msg = new PINGRESP();
+                    pingresp_msg->fromBuffer(buf, len);
+                    cout << "PINGRESP received" << endl;
+                    delete pingresp_msg;
+                    pingresp_msg = nullptr;
+                    break;
+
+                default:
+                    break;
+                }
+            }
+        }
     }
 
-    subscriber_routine(sockfd, &topics);
+    void print_usage()
+    {
+        cout << "Usage:" << endl;
+        cout << "  SUB <topic1> <topic2> ... - Subscribe to topics" << endl;
+        cout << "  UNSUB <topic1> <topic2> ... - Unsubscribe from topics" << endl;
+        cout << "  LIST - List subscribed topics" << endl;
+        cout << "  PING - Send a PINGREQ message" << endl;
+        cout << "  EXIT - Disconnect and exit\n"
+             << endl;
+    }
 
-    close(sockfd);
+    int main(int argc, char *argv[])
+    {
+        if (argc != 3)
+        {
+            cerr << "Usage: ./client_sub <hostname> <port>" << endl;
+            return 1;
+        }
 
-    return 0;
-}
+        print_usage();
+
+        int sockfd;
+        int portno = atoi(argv[2]);
+        struct sockaddr_in serv_addr;
+        struct hostent *server;
+
+        sockfd = socket(AF_INET, SOCK_STREAM, 0);
+        if (sockfd < 0)
+        {
+            cerr << "Error opening socket" << endl;
+            return 1;
+        }
+        server = gethostbyname(argv[1]);
+        if (server == NULL)
+        {
+            cerr << "Error, no such host" << endl;
+            return 1;
+        }
+        bzero((char *)&serv_addr, sizeof(serv_addr));
+        serv_addr.sin_family = AF_INET;
+        bcopy((char *)server->h_addr, (char *)&serv_addr.sin_addr.s_addr, server->h_length);
+        serv_addr.sin_port = htons(portno);
+        if (connect(sockfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0)
+        {
+            cerr << "Error connecting" << endl;
+            return 1;
+        }
+
+        int flags = fcntl(sockfd, F_GETFL, 0);
+        fcntl(sockfd, F_SETFL, flags | O_NONBLOCK);
+
+        // SUBSCRIBER ROUTINE
+        subscriber_routine(sockfd);
+
+        close(sockfd);
+
+        return 0;
+    }

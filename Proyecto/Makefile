@@ -1,5 +1,5 @@
 LDLIBS = -lm -pthread
-CFLAGS = -g -Wall
+CFLAGS = -g -Wall -Wno-unused-but-set-variable -Wunused-variable
 SRC_DIR = ./src
 
 TARGETS = server client_sub client_pub
@@ -17,3 +17,4 @@ client_pub: ${SRC_DIR}/client_pub.cpp ${SRC_DIR}/MQTT.cpp
 
 clean:
 	@rm -f ${TARGETS} core*
+

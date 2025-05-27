@@ -77,7 +77,7 @@ public:
     virtual int fromBuffer(const uint8_t *buffer, ssize_t sz8) { return 0; }; // Convert the buffer to a message for receiving
 };
 
-void connection_procedure(int sockfd, uint8_t *buffer);
+void connection_procedure(int sockfd, uint8_t *buffer, uint8_t *keepalive=0);
 void subscribe_procedure(int sockfd, uint8_t *buffer, vector<string> *topic);
 
 
@@ -95,8 +95,7 @@ int sndMsg(int sockfd, uint8_t *buffer, int length);
 #define FCONNECT_PASSWORD 0x40
 #define FCONNECT_USER_NAME 0x80
 
-class CONNECT : public MQTTMsg
-{
+class CONNECT : public MQTTMsg {
 public:
     // Variable header
     uint16_t protocol_name_len;
@@ -108,21 +107,16 @@ public:
     uint16_t client_id_len;
     string client_id;
 
-    // Implementar will?
-
     CONNECT(uint8_t type_flags = FCONNECT_DEF_TYPEFLAG,
             int remlength = FCONNECT_DEF_REMLENGTH,
-            int keepalive_ = 10)
+            int keepalive_ = 20)
     {
-
         this->type = (Type)(type_flags >> 4);
         this->flags = (type_flags & FLAGS_MSK);
-
         if (this->type != TYPE_CONNECT)
         {
             throw std::runtime_error("Invalid type for CONNECT message");
         }
-
         this->remaining_length = remlength;
         protocol_name_len = 4;
         protocol_name = "MQTT";
@@ -131,10 +125,7 @@ public:
         keep_alive = keepalive_;
         client_id_len = 0;
         client_id = "";
-        // Automatizar esto, si quiero agregar client ID, sumar client_id_len (calculado del string) a remaining_length
-        // No creo que haga falta implementar client_id
     }
-
     int toBuffer(uint8_t *buffer, ssize_t sz8) override;
     int fromBuffer(const uint8_t *buffer, ssize_t sz8) override;
 };
@@ -241,7 +232,7 @@ public:
 
     SUBSCRIBE(uint8_t type_flags = FSUBSCRIBE_DEF_TYPEFLAG,
               int remlength = FSUBSCRIBE_DEF_REMLENGTH,
-              vector<string> *topics_ = nullptr)
+              vector<string> *topics_ = nullptr, uint16_t msg_id_ = 0)
     {
         this->type = (Type)(type_flags >> 4);
         this->flags = (type_flags & FLAGS_MSK);
@@ -267,11 +258,12 @@ public:
         }
     }
 
-    SUBSCRIBE(vector<string> *topics_)
+    SUBSCRIBE(vector<string> *topics_,
+              uint16_t msg_id_ = 0)
     {
         this->type = TYPE_SUBSCRIBE;
         this->flags = 2;            // FLAGS FIELD MUST BE 0010
-        this->msg_id = 0;           // packet id
+        this->msg_id = msg_id_;           // packet id
         this->remaining_length = 2; // 2 bytes for packet id
         // string to topics_struct
         this->topics = new vector<topics_struct>();
@@ -300,7 +292,8 @@ public:
 
     SUBACK(SUBSCRIBE *sub_msg = nullptr,
            uint8_t type_flags = 0x90,
-           int remlength = 0)
+           int remlength = 0,
+           uint16_t msg_id_ = 0)
     {
         this->type = (Type)(type_flags >> 4);
         this->flags = (type_flags & FLAGS_MSK);
@@ -311,7 +304,7 @@ public:
         }
 
         this->remaining_length = remlength;
-        this->msg_id = 0; // packet id
+        //this->msg_id = msg_id_; // packet id
         this->return_codes = new vector<uint8_t>();
         if (sub_msg != nullptr)
         {
@@ -385,4 +378,97 @@ public:
     }
     int toBuffer(uint8_t *buffer, ssize_t sz8) override;
     int fromBuffer(const uint8_t *buffer, ssize_t sz8) override;
+};
+
+class UNSUBSCRIBE : public MQTTMsg
+{
+public:
+    // Payload
+    vector<topics_struct> *topics;
+    uint16_t msg_id; // packet id
+
+    UNSUBSCRIBE(uint8_t type_flags = 0xA2,
+                int remlength = 0,
+                vector<string> *topics_ = nullptr,
+                uint16_t msg_id_ = 0)
+    {
+        this->type = (Type)(type_flags >> 4);
+        this->flags = (type_flags & FLAGS_MSK);
+
+        if (this->type != TYPE_UNSUBSCRIBE)
+        {
+            throw std::runtime_error("Invalid type for UNSUBSCRIBE message");
+        }
+
+        this->remaining_length = remlength;
+        this->topics = new vector<topics_struct>();
+        if (topics_ != nullptr)
+        {
+            for (auto &topic : *topics_)
+            {
+                topics_struct t;
+                t.topic_name = topic;
+                t.topic_len = topic.length();
+                t.qos = 0; // QoS is not used in UNSUBSCRIBE
+                this->topics->push_back(t);
+                this->remaining_length += t.topic_len + 2; // 2 bytes for topic name length
+            }
+        }
+    }
+
+    UNSUBSCRIBE(vector<string> *topics_,
+                uint16_t msg_id_ = 0)
+    {
+        this->type = TYPE_UNSUBSCRIBE;
+        this->flags = 2;            // FLAGS FIELD MUST BE 0010
+        this->msg_id = msg_id_;           // packet id
+        this->remaining_length = 2; // 2 bytes for packet id
+        // string to topics_struct
+        this->topics = new vector<topics_struct>();
+        for (auto &topic : *topics_)
+        {
+            topics_struct t;
+            t.topic_name = topic;
+            t.topic_len = topic.length();
+            t.qos = 0; // QoS is not used in UNSUBSCRIBE
+            this->topics->push_back(t);
+            this->remaining_length += t.topic_len + 2; // 2 bytes for topic name length
+        }
+    }
+
+    int toBuffer(uint8_t *buffer, ssize_t sz8) override;
+    int fromBuffer(const uint8_t *buffer, ssize_t sz8) override;
+};
+
+class UNSUBACK : public MQTTMsg
+{
+    public:
+    UNSUBACK(UNSUBSCRIBE *unsub_msg=nullptr,
+            uint8_t type_flags = 0xB0,
+            int remlength = 2,
+            uint16_t msg_id_ = 0)
+    {
+        this->type = (Type)(type_flags >> 4);
+        this->flags = (type_flags & FLAGS_MSK);
+        this->msg_id = msg_id_;
+
+        if (this->type != TYPE_UNSUBACK)
+        {
+            throw std::runtime_error("Invalid type for UNSUBACK message");
+        }
+
+        if (unsub_msg != nullptr)
+        {
+            this->msg_id = unsub_msg->msg_id;
+        }
+
+        
+
+        this->remaining_length = remlength;
+    }
+    uint16_t msg_id;
+
+    int toBuffer(uint8_t *buffer, ssize_t sz8) override;
+    int fromBuffer(const uint8_t *buffer, ssize_t sz8) override;
+  
 };

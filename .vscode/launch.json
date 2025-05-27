@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/Proyecto/server", // Adjust the path if necessary
-            "args": ["1111"], // Port number for the server
+            "args": ["1883"], // Port number for the server
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/Proyecto/src",
             "environment": [],
@@ -28,7 +28,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/Proyecto/client_sub", // Adjust the path if necessary
-            "args": ["localhost", "1111", "aaaa"], // Replace with appropriate arguments
+            "args": ["localhost", "1883"], // Replace with appropriate arguments
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/Proyecto/src",
             "environment": [],
@@ -47,7 +47,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/Proyecto/client_pub", // Adjust the path if necessary
-            "args": ["localhost", "1111", "test_topic", "test_message"], // Replace with appropriate arguments
+            "args": ["localhost", "1883", "test_topic", "test_message"], // Replace with appropriate arguments
             "stopAtEntry": false,
             "cwd": "${workspaceFolder}/Proyecto/src",
             "environment": [],
