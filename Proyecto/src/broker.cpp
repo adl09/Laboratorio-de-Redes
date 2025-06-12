@@ -102,7 +102,6 @@ void Broker::toclient_routine(Client *client)
             // Add publication to list and send to all subscribers
             pub_msg = new PUBLISH(type_flags, remlen);
             pub_msg->fromBuffer(buffer, BUFF_SIZE);
-            //cout << "Received PUBLISH message: " << pub_msg->topic_name << " " << pub_msg->value << endl;
             addPublish(&pub_msg->topic_name, &pub_msg->value, &type_flags);
 
             delete pub_msg;
@@ -198,8 +197,6 @@ void Broker::toclient_routine(Client *client)
             return;
         }
     }
-
-
 }
 
 void Broker::addClient(int sockfd, const sockaddr_in &client_addr)

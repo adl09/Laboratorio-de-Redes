@@ -1,9 +1,3 @@
-/* Creo un programa que atiende a conexiones por un socket.
-1. El servidor escucha en el puerto 1234.
-2. El cliente se conecta al servidor y le envía un mensaje.
-3. Al recibir el mensaje, el servidor inicia un nuevo thread para manejar la conexión con un socket específico.
-*/
-
 #include <iostream>
 #include <unistd.h>
 #include <sys/types.h> 

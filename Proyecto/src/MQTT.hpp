@@ -69,10 +69,6 @@ public:
         return;
     }
 
-    // Type getType() const { return type; }
-    // uint8_t getFlags() const { return flags; }
-    // int getRemainingLength() const { return remaining_length; }
-
     virtual int toBuffer(uint8_t *buffer, ssize_t sz8) { return 0; };         // Convert the message to a buffer for sending
     virtual int fromBuffer(const uint8_t *buffer, ssize_t sz8) { return 0; }; // Convert the buffer to a message for receiving
 };
@@ -304,7 +300,6 @@ public:
         }
 
         this->remaining_length = remlength;
-        //this->msg_id = msg_id_; // packet id
         this->return_codes = new vector<uint8_t>();
         if (sub_msg != nullptr)
         {
@@ -313,7 +308,7 @@ public:
             {
                 this->return_codes->push_back((*sub_msg->topics)[i].qos);
             }
-            this->remaining_length += this->return_codes->size() + 2; // 2 bytes for packet id
+            this->remaining_length += this->return_codes->size() + 2; 
         }
     }
 

@@ -30,6 +30,7 @@ void publisher_routine(int sockfd, string *topic, string *value, int *retain_fla
     connection_procedure(sockfd, buffer,&keepalive);
 
     // PUBLISH
+    try{
     uint8_t type_flags = FPUBLISH_DEF_TYPEFLAG | (*retain_flag << 0); // 1 for RETAIN
     pub_msg = new PUBLISH(topic, value, type_flags);
     msgsize = (pub_msg)->toBuffer(buffer, BUFF_SIZE);
@@ -43,6 +44,11 @@ void publisher_routine(int sockfd, string *topic, string *value, int *retain_fla
     msgsize = sndMsg(sockfd, buffer, msgsize);
     delete disc_msg;
     disc_msg = nullptr;
+    }
+    catch (std::runtime_error &e) {
+        cout << "Error in publisher_routine: " << e.what() << endl;
+        return;
+    }
 }
 
 

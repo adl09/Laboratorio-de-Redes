@@ -57,17 +57,15 @@ int getEncodedLength(int sockfd, int *pcount)
     return totalLength;
 }
 
-int rcvMsg(int sockfd, uint8_t *first, int *remlen, uint8_t *buffer, uint16_t sz8) // retornar cantidad de bytes leidos
+int rcvMsg(int sockfd, uint8_t *first, int *remlen, uint8_t *buffer, uint16_t sz8)
 {
     bzero(buffer, BUFF_SIZE);
     uint8_t *ptr_buff = (uint8_t *)buffer;
 
-    uint32_t toRecv = 1; // First byte
+    uint32_t toRecv = 1;
     ssize_t recvd = 0;
     ssize_t totalRecvd = 0;
 
-    // Receive the first byte of the fixed header
-    // set flags to nonblock
     
     recvd = recv(sockfd, first, toRecv, 0);
     if ((recvd == -1 && (errno == EWOULDBLOCK || errno == EAGAIN)))
@@ -77,7 +75,6 @@ int rcvMsg(int sockfd, uint8_t *first, int *remlen, uint8_t *buffer, uint16_t sz
     
     totalRecvd += recvd;
 
-    // Calculate the remaining length to receive
     int count = 0;
     *remlen = getEncodedLength(sockfd, &count);
     if (*remlen == -1)
@@ -85,7 +82,6 @@ int rcvMsg(int sockfd, uint8_t *first, int *remlen, uint8_t *buffer, uint16_t sz
 
     toRecv = *remlen;
 
-    // Receive the variable header and payload
     while (toRecv)
     {
         recvd = recv(sockfd, ptr_buff, toRecv, 0);
@@ -110,7 +106,6 @@ int rcvMsg(int sockfd, uint8_t *first, int *remlen, uint8_t *buffer, uint16_t sz
 
 int sndMsg(int sockfd, uint8_t *buffer, int length)
 {
-    // Send
     size_t toSend = length;
     ssize_t sent;
     uint8_t *ptr_buff = (uint8_t *)buffer;
@@ -133,65 +128,70 @@ int sndMsg(int sockfd, uint8_t *buffer, int length)
 
 int CONNECT::toBuffer(uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the CONNECT message to a buffer for sending
+    
     int i = 0;
-    bzero(buffer, BUFF_SIZE); // Clear the buffer
+    bzero(buffer, BUFF_SIZE); 
 
-    type2buff(buffer);                                                  // Set the message type
-    flags2buff(buffer);                                                 // Set the flags
-    encodeLength(remaining_length, buffer + 1, &i);                     // Remaining length
-    i += 1;                                                             // i = 1 byte (first) + encoded_len counter bytes
-    len2buff(protocol_name_len, buffer + i);                            // Protocol name length
-    i += 2;                                                             // i = 1 byte (first) + encoded_len counter bytes
-    memcpy(buffer + i, this->protocol_name.c_str(), protocol_name_len); // Protocol name
+    type2buff(buffer);                                                  
+    flags2buff(buffer);                                               
+    encodeLength(remaining_length, buffer + 1, &i);                     
+    i += 1;                                                            
+    len2buff(protocol_name_len, buffer + i);                            
+    i += 2;                                                             
+    memcpy(buffer + i, this->protocol_name.c_str(), protocol_name_len); 
     i += protocol_name_len;
-    buffer[i++] = protocol_level;                               // Protocol level
-    buffer[i++] = connect_flags;                                // Connect flags
-    len2buff(keep_alive, buffer + i);                           // Keep alive
-    i += 2;                                                     // i = 1 byte (first) + encoded_len counter bytes
-    len2buff(client_id_len, buffer + i);                        // Client ID length
-    i += 2;                                                     // i = 1 byte (first) + encoded_len counter bytes
-    memcpy(buffer + i, this->client_id.c_str(), client_id_len); // Client ID
+    buffer[i++] = protocol_level;                               
+    buffer[i++] = connect_flags;                               
+    len2buff(keep_alive, buffer + i);                          
+    i += 2;                                                     
+    len2buff(client_id_len, buffer + i);                        
+    i += 2;                                                    
+    memcpy(buffer + i, this->client_id.c_str(), client_id_len); 
     i += client_id_len;
-    return i; // Return the number of bytes written to the buffer
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
+    return i; 
 }
 
 int CONNECT::fromBuffer(const uint8_t *buffer, ssize_t sz8)
 {
-    // // Convert the buffer to a CONNECT message
-    protocol_name_len = (buffer[0] << 8) | buffer[1];         // Protocol name length
-    memcpy(&protocol_name[0], buffer + 2, protocol_name_len); // Protocol name
+   
+    protocol_name_len = (buffer[0] << 8) | buffer[1];        
+    memcpy(&protocol_name[0], buffer + 2, protocol_name_len); 
     int i = 2;
     i += protocol_name_len;
-    protocol_level = buffer[i++];                  // Protocol level
-    connect_flags = buffer[i++];                   // Connect flags
-    keep_alive = (buffer[i] << 8) | buffer[i + 1]; // Keep alive
+    protocol_level = buffer[i++];                  
+    connect_flags = buffer[i++];                   
+    keep_alive = (buffer[i] << 8) | buffer[i + 1]; 
 
-    // AGREGAR CLIENT_ID ...
-
-    return i + 1; // Return the number of bytes read from the buffer
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
+    return i + 1; 
 }
 
 int CONNACK::toBuffer(uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the CONNACK message to a buffer for sending
     int i = 0;
-    bzero(buffer, BUFF_SIZE); // Clear the buffer
+    bzero(buffer, BUFF_SIZE); 
 
-    type2buff(buffer);                              // Set the message type
-    flags2buff(buffer);                             // Set the flags
-    encodeLength(remaining_length, buffer + 1, &i); // Remaining length
-    i += 1;                                         // i = 1 byte (first) + encoded_len counter bytes
-    buffer[i++] = session_present;                  // Session present
-    buffer[i++] = return_code;                      // Return code
-    return i;                                       // Return the number of bytes written to the buffer
+    type2buff(buffer);                              
+    flags2buff(buffer);                             
+    encodeLength(remaining_length, buffer + 1, &i); 
+    i += 1;                                         
+    buffer[i++] = session_present;                  
+    buffer[i++] = return_code;                      
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
+
+    return i;                                     
 }
 
 int CONNACK::fromBuffer(const uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the buffer to a CONNACK message
-    session_present = buffer[0]; // Session present
-    return_code = buffer[1];     // Return code
+    int i=0;
+    session_present = buffer[0]; 
+    i += 1;
+    return_code = buffer[1];    
+    i += 1;
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
+
     return 0;
 }
 
@@ -201,7 +201,6 @@ void connection_procedure(int sockfd, uint8_t *buffer, uint8_t *keepalive)
     CONNACK *conack_msg = nullptr;
     int msgsize, remlen, totalRecvd;
 
-    // Create CONNECT
     con_msg = new CONNECT();
     msgsize = ((CONNECT *)con_msg)->toBuffer(buffer, BUFF_SIZE);
     msgsize = sndMsg(sockfd, buffer, msgsize);
@@ -209,7 +208,6 @@ void connection_procedure(int sockfd, uint8_t *buffer, uint8_t *keepalive)
     delete con_msg;
     con_msg = nullptr;
 
-    // Wait to receive CONNACK from server
     conack_msg = new CONNACK();
     while (true)
     {
@@ -231,84 +229,82 @@ void connection_procedure(int sockfd, uint8_t *buffer, uint8_t *keepalive)
 
 int PUBLISH::toBuffer(uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the PUBLISH message to a buffer for sending
     int i = 0;
-    bzero(buffer, BUFF_SIZE); // Clear the buffer
+    bzero(buffer, BUFF_SIZE); 
 
-    type2buff(buffer);                                            // Set the message type
-    flags2buff(buffer);                                           // Set the flags
-    encodeLength(remaining_length, buffer + 1, &i);               // Remaining length
-    i += 1;                                                       // i = 1 byte (first) + encoded_len counter bytes
-    len2buff(topic_name_len, buffer + i);                         // Topic name length
-    i += 2;                                                       // i = 1 byte (first) + encoded_len counter bytes
-    memcpy(buffer + i, this->topic_name.c_str(), topic_name_len); // Topic name
+    type2buff(buffer);                                            
+    flags2buff(buffer);                                           
+    encodeLength(remaining_length, buffer + 1, &i);               
+    i += 1;                                                       
+    len2buff(topic_name_len, buffer + i);                        
+    i += 2;                                                       
+    memcpy(buffer + i, this->topic_name.c_str(), topic_name_len);
     i += topic_name_len;
-    memcpy(buffer + i, this->value.c_str(), value.length()); // Payload
+    memcpy(buffer + i, this->value.c_str(), value.length()); 
     i += value.length();
-    return i; // Return the number of bytes written to the buffer
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
+
+    return i; 
 }
 
 int PUBLISH::fromBuffer(const uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the buffer to a PUBLISH message
-    topic_name_len = (buffer[0] << 8) | buffer[1];           // Topic name length
-    topic_name = string((char *)buffer + 2, topic_name_len); // Topic name
+    topic_name_len = (buffer[0] << 8) | buffer[1];           
+    topic_name = string((char *)buffer + 2, topic_name_len);
     int i = topic_name_len + 2;
-    value = string((char *)buffer + i, this->remaining_length - i); // Payload
+    value = string((char *)buffer + i, this->remaining_length - i); 
     i += value.length();
-
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
     return 0;
 }
 
 int SUBSCRIBE::toBuffer(uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the SUBSCRIBE message to a buffer for sending
     int i = 0;
-    bzero(buffer, BUFF_SIZE); // Clear the buffer
+    bzero(buffer, BUFF_SIZE); 
 
-    type2buff(buffer);                              // Set the message type
-    flags2buff(buffer);                             // Set the flags
-    encodeLength(remaining_length, buffer + 1, &i); // Remaining length
-    i += 1;                                         // i = 1 byte (first) + encoded_len counter bytes
-    // msg_id
-    len2buff(msg_id, buffer + i); // Message ID
-    i += 2; // i = 1 byte (first) + encoded_len counter bytes
+    type2buff(buffer);                             
+    flags2buff(buffer);                             
+    encodeLength(remaining_length, buffer + 1, &i); 
+    i += 1;                                         
+    len2buff(msg_id, buffer + i);
+    i += 2; 
 
     for (int j = 0; j < (int)this->topics->size(); ++j)
     {
-        len2buff((*this->topics)[j].topic_len, buffer + i);                                      // Topic name length
-        i += 2;                                                                                  // i = 1 byte (first) + encoded_len counter bytes
-        memcpy(buffer + i, (*this->topics)[j].topic_name.c_str(), (*this->topics)[j].topic_len); // Topic name
+        len2buff((*this->topics)[j].topic_len, buffer + i);                                      
+        i += 2;                                                                                  
+        memcpy(buffer + i, (*this->topics)[j].topic_name.c_str(), (*this->topics)[j].topic_len);
         i += (*this->topics)[j].topic_len;
-        buffer[i++] = (*this->topics)[j].qos; // QoS level
+        buffer[i++] = (*this->topics)[j].qos;
     }
-
-    return i; // Return the number of bytes written to the buffer
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
+    return i; 
 }
 int SUBSCRIBE::fromBuffer(const uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the buffer to a SUBSCRIBE message
     int i = 0;
     int rem_length = this->remaining_length;
-    msg_id = (buffer[i] << 8) | buffer[i + 1]; // Message ID
-    i += 2;                                    // i = 1 byte (first) + encoded_len counter bytes
-    rem_length -= 2;                           // Message ID length
+    msg_id = (buffer[i] << 8) | buffer[i + 1];
+    i += 2;                                    
+    rem_length -= 2;                          
     do
     {
         topics_struct topic;
-        topic.topic_len = (buffer[i] << 8) | buffer[i + 1]; // Topic name length
+        topic.topic_len = (buffer[i] << 8) | buffer[i + 1]; 
         i += 2;
-        topic.topic_name = string((char *)buffer + i, topic.topic_len); // Topic name
+        topic.topic_name = string((char *)buffer + i, topic.topic_len); 
         i += topic.topic_len;
-        topic.qos = buffer[i++]; // QoS level
+        topic.qos = buffer[i++]; 
         topics->push_back(topic);
         rem_length -= (topic.topic_len + 3);
         if (rem_length < 0)
         {
-            cout << "Malformed SUBSCRIBE message" << endl; // MANEJO ERRORES
+            cout << "Malformed SUBSCRIBE message" << endl; 
             return -1;
         }
     } while (rem_length > 0);
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
     return 0;
 }
 
@@ -316,32 +312,34 @@ int SUBSCRIBE::fromBuffer(const uint8_t *buffer, ssize_t sz8)
 
 int SUBACK::toBuffer(uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the SUBACK message to a buffer for sending
+   
     int i = 0;
-    bzero(buffer, BUFF_SIZE); // Clear the buffer
+    bzero(buffer, BUFF_SIZE); 
 
-    type2buff(buffer);                              // Set the message type
-    flags2buff(buffer);                             // Set the flags
-    encodeLength(remaining_length, buffer + 1, &i); // Remaining length
-    i += 1;                                         // i = 1 byte (first) + encoded_len counter bytes
-    len2buff(msg_id, buffer + i);                   // Message ID
-    i += 2;                                         // i = 1 byte (first) + encoded_len counter bytes
+    type2buff(buffer);                              
+    flags2buff(buffer);                             
+    encodeLength(remaining_length, buffer + 1, &i); 
+    i += 1;                                         
+    len2buff(msg_id, buffer + i);                   
+    i += 2;                                         
     for (int j = 0; j < (int)this->return_codes->size(); ++j)
     {
-        buffer[i++] = (*this->return_codes)[j]; // Return code
+        buffer[i++] = (*this->return_codes)[j]; 
     }
-    return i; // Return the number of bytes written to the buffer
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
+    return i; 
 }
 
 int SUBACK::fromBuffer(const uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the buffer to a SUBACK message
-    msg_id = (buffer[0] << 8) | buffer[1]; // Message ID
-    int i = 2;                             // i = 1 byte (first) + encoded_len counter bytes
+    
+    msg_id = (buffer[0] << 8) | buffer[1]; 
+    int i = 2;                            
     for (int j = 0; j < this->remaining_length - 2; ++j)
     {
-        return_codes->push_back(buffer[i++]); // Return code
+        return_codes->push_back(buffer[i++]);
     }
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
     return 0;
 }
 
@@ -373,134 +371,127 @@ void subscribe_procedure(int sockfd, uint8_t *buffer, vector<string> *topics)
             return;
         }
     }
-    // Add 
 
     return;
 }
 
 int PINGREQ::toBuffer(uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the PINGREQ message to a buffer for sending
+    
     int i = 0;
-    bzero(buffer, BUFF_SIZE); // Clear the buffer
+    bzero(buffer, BUFF_SIZE); 
 
-    type2buff(buffer);                              // Set the message type
-    flags2buff(buffer);                             // Set the flags
-    encodeLength(remaining_length, buffer + 1, &i); // Remaining length
-    i += 1;                                         // i = 1 byte (first) + encoded_len counter bytes
-    return i;                                       // Return the number of bytes written to the buffer
+    type2buff(buffer);                             
+    flags2buff(buffer);                             
+    encodeLength(remaining_length, buffer + 1, &i); 
+    i += 1;                                         
+
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
+    return i;                                       
 }
 
 int PINGREQ::fromBuffer(const uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the buffer to a PINGREQ message
     return 0;
 }
 
 int PINGRESP::toBuffer(uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the PINGRESP message to a buffer for sending
     int i = 0;
-    bzero(buffer, BUFF_SIZE); // Clear the buffer
+    bzero(buffer, BUFF_SIZE); 
 
-    type2buff(buffer);                              // Set the message type
-    flags2buff(buffer);                             // Set the flags
-    encodeLength(remaining_length, buffer + 1, &i); // Remaining length
-    i += 1;                                         // i = 1 byte (first) + encoded_len counter bytes
-    return i;                                       // Return the number of bytes written to the buffer
+    type2buff(buffer);                              
+    flags2buff(buffer);                             
+    encodeLength(remaining_length, buffer + 1, &i); 
+    i += 1;                                         
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
+    return i;                               
 }
 
 int PINGRESP::fromBuffer(const uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the buffer to a PINGRESP message
     return 0;
 }
 int DISCONNECT::toBuffer(uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the DISCONNECT message to a buffer for sending
     int i = 0;
-    bzero(buffer, BUFF_SIZE); // Clear the buffer
-
-    type2buff(buffer);                              // Set the message type
-    flags2buff(buffer);                             // Set the flags
-    encodeLength(remaining_length, buffer + 1, &i); // Remaining length
-    i += 1;                                         // i = 1 byte (first) + encoded_len counter bytes
-    return i;                                       // Return the number of bytes written to the buffer
+    bzero(buffer, BUFF_SIZE); 
+    type2buff(buffer);                             
+    flags2buff(buffer);                            
+    encodeLength(remaining_length, buffer + 1, &i);
+    i += 1;                                         
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
+    return i;                                      
 }
 int DISCONNECT::fromBuffer(const uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the buffer to a DISCONNECT message
-
     return 0;
 }
 
 int UNSUBSCRIBE::toBuffer(uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the UNSUBSCRIBE message to a buffer for sending
     int i = 0;
-    bzero(buffer, BUFF_SIZE); // Clear the buffer
-
-    type2buff(buffer);                              // Set the message type
-    flags2buff(buffer);                             // Set the flags
-    encodeLength(remaining_length, buffer + 1, &i); // Remaining length
-    i += 1;                                         // i = 1 byte (first) + encoded_len counter bytes
-    len2buff(msg_id, buffer + i);                   // Message ID
-    i += 2;                                         // i = 1 byte (first) + encoded_len counter bytes
+    bzero(buffer, BUFF_SIZE); 
+    type2buff(buffer);                             
+    flags2buff(buffer);                             
+    encodeLength(remaining_length, buffer + 1, &i); 
+    i += 1;                                        
+    len2buff(msg_id, buffer + i);              
+    i += 2;                                         
 
     for (int j = 0; j < (int)this->topics->size(); ++j)
     {
-        len2buff((*this->topics)[j].topic_len, buffer + i);                                      // Topic name length
-        i += 2;                                                                                  // i = 1 byte (first) + encoded_len counter bytes
-        memcpy(buffer + i, (*this->topics)[j].topic_name.c_str(), (*this->topics)[j].topic_len); // Topic name
+        len2buff((*this->topics)[j].topic_len, buffer + i);                                     
+        i += 2;                                                                               
+        memcpy(buffer + i, (*this->topics)[j].topic_name.c_str(), (*this->topics)[j].topic_len);
         i += (*this->topics)[j].topic_len;
     }
-    return i; // Return the number of bytes written to the buffer
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
+    return i;
 }
 
 int UNSUBSCRIBE::fromBuffer(const uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the buffer to a UNSUBSCRIBE message
     int i = 0;
     int rem_length = this->remaining_length;
-    msg_id = (buffer[i] << 8) | buffer[i + 1]; // Message ID
-    i += 2;                                    // i = 1 byte (first) + encoded_len counter bytes
-    rem_length -= 2;                           // Message ID length
+    msg_id = (buffer[i] << 8) | buffer[i + 1]; 
+    i += 2;                                    
+    rem_length -= 2;                          
     do
     {
         topics_struct topic;
-        topic.topic_len = (buffer[i] << 8) | buffer[i + 1]; // Topic name length
+        topic.topic_len = (buffer[i] << 8) | buffer[i + 1];
         i += 2;
-        topic.topic_name = string((char *)buffer + i, topic.topic_len); // Topic name
+        topic.topic_name = string((char *)buffer + i, topic.topic_len);
         i += topic.topic_len;
         topics->push_back(topic);
         rem_length -= (topic.topic_len + 2);
         if (rem_length < 0)
         {
-            cout << "Malformed UNSUBSCRIBE message" << endl; // MANEJO ERRORES
+            cout << "Malformed UNSUBSCRIBE message" << endl; 
             return -1;
         }
     } while (rem_length > 0);
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
     return 0;
 }
 
 int UNSUBACK::fromBuffer(const uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the buffer to a UNSUBACK message
-    msg_id = (buffer[0] << 8) | buffer[1]; // Message ID
+    msg_id = (buffer[0] << 8) | buffer[1]; 
     return 0;
 }
 
 int UNSUBACK::toBuffer(uint8_t *buffer, ssize_t sz8)
 {
-    // Convert the UNSUBACK message to a buffer for sending
     int i = 0;
-    bzero(buffer, BUFF_SIZE); // Clear the buffer
-
-    type2buff(buffer);                              // Set the message type
-    flags2buff(buffer);                             // Set the flags
-    encodeLength(remaining_length, buffer + 1, &i); // Remaining length
-    i += 1;                                         // i = 1 byte (first) + encoded_len counter bytes
-    len2buff(msg_id, buffer + i);                   // Message ID
-    i += 2;                                         // i = 1 byte (first) + encoded_len counter bytes
-    return i;                                       // Return the number of bytes written to the buffer
+    bzero(buffer, BUFF_SIZE);
+    type2buff(buffer);                          
+    flags2buff(buffer);                        
+    encodeLength(remaining_length, buffer + 1, &i);
+    i += 1;                                
+    len2buff(msg_id, buffer + i);                 
+    i += 2;                                     
+    if (i > sz8) throw std::runtime_error("Buffer overflow");
+    return i;                                   
 }
