@@ -1,59 +1,45 @@
-# MQTT
-Protocolo Publish/Subscribe
-Tiene que ser compatible con Mosquitto.
+## Project Overview
 
-Buffers de 
+This project explores key concepts in computer networks, focusing on the implementation and experimentation with the MQTT protocol. MQTT (Message Queuing Telemetry Transport) is a lightweight messaging protocol commonly used for IoT (Internet of Things) applications due to its efficiency and simplicity.
 
-# Broker
-- A este se conectan los clientes que se suscriban o publiquen a un tópico. Tópico: cadenas de caracteres (tópico,valor).
-- Puedo utilizar https://test.mosquitto.org/ como broker de test.
-- main()
-- Multiprocesos:
-    - Atender a múltiples conexiones: fork, thread, select.
-    - Al recibir una nueva conexión: creo un nuevo socket con accept.
-    - Cuando un thread recibe un publish, revisa la tabla de clientes suscriptos y les reenvia el mensaje.
-    - Para ver los hilos usar: top -H -p PID (PID LO OBTENGO CON ps ax | grep server)
-- Tablas:
-    - Conexiones (clientes).
-    - Tópicos a retener (tópico, valor).
-    - 
+The project includes:
 
+- Implementation of MQTT clients and a broker to facilitate publish/subscribe communication.
+- Demonstrations of how clients can publish messages to specific topics and subscribe to receive relevant data.
+- Experiments and analysis of data transmission, error handling, and network performance using MQTT.
 
-# Client
-- main() -> opciones para suscribir/publicar
-- No creo necesitar multithreading.
-- Tengo una cola de envío y otra de recepción.
+## Using the MQTT Clients and Server
 
-Subscriber:
+The `src` directory contains three main components:
 
+- **server**: Acts as the MQTT broker. It manages topic subscriptions and routes messages from publishers to subscribers.
+- **client_pub**: An MQTT client that publishes messages to a specified topic.
+- **client_sub**: An MQTT client that subscribes to a topic and receives messages published to it.
 
-Publisher:
+### How to Use
 
+1. **Start the server (broker):**
+    ```bash
+    ./server
+    ```
 
-# TO-DO
-1. Implementación protocolo. Output: Mensajes.
-2. Manejo conexiones, cliente-server. 
+2. **Start a subscriber client:**
+    ```bash
+    ./client_sub <ip> <port>
+    ```
+    After starting, you can interact with the program to subscribe (`SUB <topic>`) or unsubscribe (`UNSUB <topic>`) from topics as needed.
 
+3. **Start a publisher client:**
+    ```bash
+    ./client_pub <ip> <port> <topic> <message> <retain>
+    ```
+    Replace `<topic>` with the topic to publish to, and `<message>` with the message content, and `<retain>` with the retain flag (0 or 1).
 
-================================================
-18-05-25
-./server 1234
-./client_sub localhost 1234 topic
-./client_pub localhost 1234 topic value
+You can run multiple subscribers and publishers simultaneously to test publish/subscribe functionality.
 
-TENEMOS:
-- ./server crea un objeto broker (acá se inicializa el socket en 1234 y se pone listen) y llama al método acceptClients() (while(1) accept, esto es bloqueante, pero se bloquea el hilo principal solamente. A cada cliente nuevo se lo maneja en un hilo nuevo).
+## MQTT Clients and Broker
 
-- 
+- **MQTT Clients:** These are devices or applications that connect to the MQTT broker. Clients can act as publishers (sending messages to topics) or subscribers (receiving messages from topics they are interested in). In this project, you will find sample client implementations that demonstrate both roles.
+- **MQTT Broker:** The broker is the central server that manages message distribution. It receives messages from publishers and forwards them to the appropriate subscribers based on topic subscriptions. The broker ensures reliable and efficient message delivery between clients.
 
-================================================
-20-05-25
-# Requisitos:
-1. CONNECT: 
-    a. Client2Server
-    b. Servidor: espera solo UN connect, si viene otro cierra la conexión.
-    c. Flags usadas: username, password, willretain, cleansession=1 (no voy a guardar estados), willmessage.
-    d. 
-2. CONNACK:
-    a. Server2Client
-    b. 
+This setup allows for scalable, real-time communication between multiple devices, making it ideal for networked applications and IoT systems.
